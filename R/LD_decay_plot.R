@@ -1,9 +1,9 @@
 #!/work/apps/tools/conda/minconda3/20230202/bin/Rscript
-## 根据plink的LD结果进行 LD decay 和 LD phase correlation 作图,LD结果文件过大可能会运行慢
+## Plot LD decay and LD phase correlation based on PLINK's LD results. Note: The process may run slowly due to the large LD result file.
 # debug
 # opt <- list(files="breedAsq breedBsq", mapf = "breedAsq.map")
 
-## 加载需要的程序包
+## Load required packages
 cat("Loading required packages... \n\n")
 suppressPackageStartupMessages(library("getopt"))
 suppressPackageStartupMessages(library("ggplot2"))
@@ -12,7 +12,7 @@ suppressPackageStartupMessages(library("data.table"))
 suppressPackageStartupMessages(library("reshape2"))
 suppressPackageStartupMessages(library("Cairo"))
 
-## 参数列表
+## Parameter list
 spec <- matrix(
   c(
     "files", "I", 1, "character", "[Required] LD results files prefix of populations\n",
@@ -36,16 +36,16 @@ spec <- matrix(
 )
 opt <- getopt(spec = spec)
 
-## 检查参数
+## Check parameters
 if (!is.null(opt$help) || is.null(opt$files)) {
   cat(paste(getopt(spec = spec, usage = TRUERUE), "\n"))
   quit()
 }
 
-## 文件名前缀
+## File prefixes
 prefixs <- unlist(strsplit(opt$files, " "))
 
-## 默认参数
+## Default parameters
 if (is.null(opt$popN)) opt$popN <- opt$files
 if (is.null(opt$bin1)) opt$bin1 <- 10
 if (is.null(opt$bin2)) opt$bin2 <- 100
@@ -55,19 +55,19 @@ if (is.null(opt$out)) opt$out <- paste(prefixs, collapse = "_")
 if (is.null(opt$plot)) opt$plot <- "T"
 if (is.null(opt$type)) opt$type <- "ld"
 
-## 工作文件夹
+## Working directory
 if (!is.null(opt$dir)) setwd(opt$dir)
 
-## 文件名
+## File names
 files <- paste0(prefixs, ".", opt$type)
 
-## 群体个数
+## Number of populations
 np <- length(files)
 
-## 群体标识符
+## Name of populations
 pop_name <- unlist(strsplit(opt$popN, " "))
 
-## 确定读取plink的ld还是frq结果
+## Determine whether to read PLINK's ld or frq results
 if (opt$type == "ld") {
   cols <- c(1, 2, 5, 7)
   value_cols <- 4
@@ -80,17 +80,17 @@ if (opt$type == "ld") {
 
 cat("Reading and merging results...\n")
 for (i in 1:np) {
-  ## 检查文件是否存在
+  ## Check if file exists
   if (!file.exists(files[i])) {
     cat("file ", i, ": ", files[i], "not found.\n")
     quit()
   }
 
-  ## 读取处理文件
+  ## Read and process file
   datai <- fread(files[i], select = cols)
   names(datai)[value_cols] <- pop_name[i]
   
-  ## 去除pos为0的标记位点
+  ## Remove the markers with pos of 0
   datai <- subset(datai, !(BP_A == 0 | BP_B == 0))
 
   datai$dist <- abs(datai$BP_A - datai$BP_B) / 1000
@@ -99,7 +99,7 @@ for (i in 1:np) {
   if (i == 1) {
     data <- datai
 
-    ## 剔除大于设定值的SNP对
+    ## Remove the markers greater than the set value
     if (opt$type == "ld") {
       data$dist <- abs(data$BP_A - data$BP_B) / 1000
       data <- data[!data$dist > opt$max, ]
@@ -110,74 +110,74 @@ for (i in 1:np) {
   }
 }
 
-## 去掉染色体列
+## Remove the column of chromosome 
 data <- data[, -1]
 
-## 生成LD作图区间
+## Generate LD plot intervals
 bins <- c(
   seq(0, opt$breaks, opt$bin1),
   seq(opt$breaks + opt$bin2, opt$max, opt$bin2)
 )
 
-# ## 删除R2为0的标记对
+# ## Remove the markers with R2 value of 0
 # zero <- apply(data, 1, function(x) any(x <= 0))
 # R2_all <- subset(data, !zero)
 
-## 列重排序
+## Reorder columns
 cols <- c("BP_A", "BP_B", "dist", pop_name)
 data <- subset(data, select = cols)
 
-## 统计两两群体之间的相关
+## Calculate correlations between populations
 cat("Performing descriptive statistics on LD results...\n")
 mean_cor <- matrix(NA, nrow = np, ncol = np)
 rownames(mean_cor) <- colnames(mean_cor) <- pop_name
 for (i in 4:(ncol(data) - 1)) {
   for (j in (i + 1):ncol(data)) {
-    ## 提取i、j群体数据
+    ## Extract data for populations i and j
     colsi <- c("dist", pop_name[i - 3], pop_name[j - 3])
     cor_data <- subset(data, select = colsi)
     names(cor_data) <- c("dist", "R2_1", "R2_2")
 
-    ## 报告总体相关
+    ## Population correlation
     corij <- cor(cor_data$R2_1, cor_data$R2_2)
     mean_cor[i - 3, j - 3] <- corij
     # cat("LD correlation of", colsi[2], "and", colsi[3], "is:", corij, "\n")
 
-    ## 统计R2均值，不同群体间相关系数
+    ## Calculate the mean of R2 values and correlations between populations
     cori <- mutate(cor_data, dist = cut(dist, breaks = bins)) %>%
       group_by(dist) %>%
       summarise(R1 = mean(R2_1), R2 = mean(R2_2), cor = cor(R2_1, R2_2))
 
-    ## 命名
+    ## Name
     cori_names <- paste(colsi[2], colsi[3], sep = "_")
     names(cori) <- c(colsi, cori_names)
 
-    ## 合并结果
+    ## Merge results
     if (i == 4 && j == i + 1) {
-      ## 第一个组，不需要合并
+      ## No need to merge the first group
       cor_all <- cori
 
-      ## 将区间表示列更换
+      ## Change the column of interval
       cor_all$dist <- bins[2:(nrow(cor_all) + 1)]
 
-      ## 组的名字
+      ## Group names
       cor_names <- cori_names
     } else {
-      ## 将新的列合并到已有结果
+      ## Merge new columns into existing results
       cols_new <- !names(cori) %in% names(cor_all)
       cori <- subset(cori, select = cols_new)
       cor_all <- cbind(cor_all, cori)
 
-      ## 合并组名
+      ## Merge group names
       cor_names <- c(cor_names, cori_names)
     }
   }
 }
 
-## 删除na
+## Remove NA
 cor_all <- subset(cor_all, !is.na(dist))
 
-## 输出统计结果
+## Output statistical results
 print(mean_cor)
 narm <- !apply(cor_all, 1, function(x) any(is.na(x)))
 write.table(cor_all[narm, ], paste0(opt$out, "_ld.txt"), row.names = FALSE, quote = FALSE)
@@ -185,15 +185,15 @@ write.table(mean_cor, paste0(opt$out, "_cor_ld.txt"), quote = FALSE)
 
 cat("Ploting...\n")
 
-## LD衰减作图
-## 提取数据
+## LD decay plot
+## Extract data
 ld_decay <- subset(cor_all, select = c("dist", pop_name))
 ld_decay_p <- melt(ld_decay,
   id.vars = "dist",
   variable.name = "populations",
   value.name = "R2"
 )
-## 作图
+## Plot
 plot_decay <- ggplot(ld_decay_p, aes(x = dist, y = R2, color = populations)) +
   geom_line(size = 1.2) +
   theme(
@@ -213,14 +213,14 @@ plot_decay <- ggplot(ld_decay_p, aes(x = dist, y = R2, color = populations)) +
   xlab("Distance/kb") +
   ylab("LD/R2")
 
-## y轴约束
+## y-axis constraints
 if (!is.null(opt$decayL) && !is.null(opt$decayU)) {
   plot_decay <- plot_decay +
     scale_y_continuous(breaks = seq(0, 0.9, by = 0.1), limit = c(opt$decayL, opt$decayU))
 }
 
-## LD一致性图
-## 提取数据
+## LD consistency plot
+## Extract data
 ld_cor <- subset(cor_all, select = c("dist", cor_names))
 ld_cor_p <- melt(ld_cor,
   id.vars = "dist",
@@ -229,7 +229,7 @@ ld_cor_p <- melt(ld_cor,
 )
 ld_cor_p <- ld_cor_p[!is.na(ld_cor_p$cor), ]
 
-## 作图
+## Plot
 if (np > 2) {
   plot_cor_pre <- ggplot(ld_cor_p, aes(x = dist, y = cor, color = populations))
 } else {
@@ -255,13 +255,13 @@ plot_cor <- plot_cor_pre +
   ylab("Pearson correlation of R2")
 
 
-## y轴约束
+## y-axis constraints
 if (!is.null(opt$corL) && !is.null(opt$corU)) {
   plot_cor <- plot_cor +
     scale_y_continuous(breaks = seq(0, 0.9, by = 0.1), limit = c(opt$corL, opt$corU))
 }
 
-## 输出
+## Output
 # widths = 600 * (opt$max / 1000 / 2.5)
 if (opt$plot == "F") {
   theme_p
